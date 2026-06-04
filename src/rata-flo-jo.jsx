@@ -1,6 +1,32 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabaseClient";
 
+// ─── ANIMATIONS CSS ───────────────────────────────────────────────────────────
+const GLOBAL_STYLES = `
+  @keyframes pulse-btn { 0%,100%{transform:scale(1);box-shadow:0 0 40px rgba(224,64,251,0.3)} 50%{transform:scale(1.04);box-shadow:0 0 60px rgba(224,64,251,0.6)} }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  @keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
+  @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-8px)} }
+  @keyframes fadeInUp { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes fadeInDown { from{opacity:0;transform:translateY(-30px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes zoomIn { from{opacity:0;transform:scale(0.5)} to{opacity:1;transform:scale(1)} }
+  @keyframes slideIn { from{opacity:0;transform:translateX(-20px)} to{opacity:1;transform:translateX(0)} }
+  @keyframes shimmer { 0%{background-position:-200% center} 100%{background-position:200% center} }
+  @keyframes confetti-fall { 0%{transform:translateY(-10px) rotate(0deg);opacity:1} 100%{transform:translateY(100vh) rotate(720deg);opacity:0} }
+  @keyframes float { 0%,100%{transform:translateY(0px)} 50%{transform:translateY(-6px)} }
+  @keyframes progress-fill { from{width:0%} to{width:var(--target-width)} }
+  @keyframes tab-slide { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes level-pop { 0%{transform:scale(0) rotate(-10deg);opacity:0} 60%{transform:scale(1.15) rotate(3deg)} 100%{transform:scale(1) rotate(0deg);opacity:1} }
+  @keyframes gps-ping { 0%{transform:scale(1);opacity:1} 100%{transform:scale(3);opacity:0} }
+  @keyframes number-count { from{opacity:0;transform:scale(0.8)} to{opacity:1;transform:scale(1)} }
+  .btn-lrg { animation: pulse-btn 2s ease-in-out infinite; }
+  .btn-lrg:active { transform: scale(0.96) !important; transition: transform 0.1s; }
+  .fade-in-up { animation: fadeInUp 0.4s ease forwards; }
+  .zoom-in { animation: zoomIn 0.3s ease forwards; }
+  .bounce-emoji { animation: bounce 1.5s ease-in-out infinite; }
+  .float-anim { animation: float 3s ease-in-out infinite; }
+`;
+
 const LEVELS = [
   { level: 1, km: 0, emoji: "🐣", name: "Pollito Desplumado", desc: "Corrió 4 minutos y ya vio a Dios." },
   { level: 2, km: 1, emoji: "🐭", name: "Ratita de Vereda", desc: "Descubrió que las subidas fueron creadas por el demonio." },
@@ -55,7 +81,6 @@ const LEVELS = [
 ];
 
 const EMOCIONES = [
-  { emoji: "💀", cat: "Supervivencia", name: "Supervivencia", sub: "Contra todo pronóstico." },
   { emoji: "💀", cat: "Supervivencia", name: "No Morí", sub: "Contra todo pronóstico." },
   { emoji: "🫁", cat: "Supervivencia", name: "Pulmones Ofendidos", sub: "Hay una queja formal en proceso." },
   { emoji: "🦴", cat: "Supervivencia", name: "Crujido Sospechoso", sub: "Escuché algo raro y decidí ignorarlo." },
@@ -79,7 +104,9 @@ const EMOCIONES = [
 ];
 
 const WEATHER_OPTIONS = ["☀️ Soleado", "⛅ Nublado", "🌧️ Lloviendo", "🌫️ Neblina", "🌬️ Ventoso", "🌡️ Caluroso", "❄️ Frío"];
+const CONFETTI_COLORS = ["#e040fb", "#7c4dff", "#00e676", "#ff1744", "#ffea00", "#00b0ff"];
 
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 function calcDistance(coords) {
   if (coords.length < 2) return 0;
   let total = 0;
@@ -127,11 +154,37 @@ function getNextLevel(totalKm) {
   return null;
 }
 
+// ─── CONFETTI ─────────────────────────────────────────────────────────────────
+function Confetti({ active }) {
+  if (!active) return null;
+  const pieces = Array.from({ length: 40 }, (_, i) => ({
+    id: i,
+    color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
+    left: Math.random() * 100,
+    delay: Math.random() * 1.5,
+    size: 6 + Math.random() * 8,
+    duration: 2 + Math.random() * 2,
+  }));
+  return (
+    <div style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 300, overflow: "hidden" }}>
+      {pieces.map((p) => (
+        <div key={p.id} style={{
+          position: "absolute", top: -20, left: `${p.left}%`,
+          width: p.size, height: p.size, borderRadius: Math.random() > 0.5 ? "50%" : 2,
+          background: p.color,
+          animation: `confetti-fall ${p.duration}s ${p.delay}s ease-in forwards`,
+        }} />
+      ))}
+    </div>
+  );
+}
+
+// ─── MINI MAP ─────────────────────────────────────────────────────────────────
 function MiniMap({ coords, size = 120 }) {
   if (!coords || coords.length < 2) {
     return (
       <div style={{ width: size, height: size, background: "#1a1a2e", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <span style={{ fontSize: 11, color: "#555", textAlign: "center" }}>Sin recorrido</span>
+        <span style={{ fontSize: 11, color: "#555" }}>Sin recorrido</span>
       </div>
     );
   }
@@ -147,40 +200,41 @@ function MiniMap({ coords, size = 120 }) {
   const start = coords[0], end = coords[coords.length - 1];
   return (
     <svg width={size} height={size} style={{ borderRadius: 8, background: "#0f0f1e" }}>
-      <polyline points={points} fill="none" stroke="#e040fb" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <circle cx={toX(start[1])} cy={toY(start[0])} r={4} fill="#00e676" />
-      <circle cx={toX(end[1])} cy={toY(end[0])} r={4} fill="#ff1744" />
+      <polyline points={points} fill="none" stroke="#e040fb" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx={toX(start[1])} cy={toY(start[0])} r={5} fill="#00e676" />
+      <circle cx={toX(end[1])} cy={toY(end[0])} r={5} fill="#ff1744" />
     </svg>
   );
 }
 
+// ─── SHARE CARD ───────────────────────────────────────────────────────────────
 function ShareCard({ run, onClose }) {
   const level = getCurrentLevel(run.totalKmAtRun || 0);
   const [shareType, setShareType] = useState("feed");
   const isStory = shareType === "story";
-  const w = isStory ? 320 : 320;
   const h = isStory ? 568 : 320;
 
   const handleShare = (platform) => {
-    alert(`🚀 Abriendo ${platform}...\n\nEn producción esto abriría el share nativo con la imagen generada.\n\n📏 ${run.distance.toFixed(2)} km | ⏱️ ${fmtTime(run.duration)} | ⚡ ${fmtPace(run.distance, run.duration)} min/km`);
+    alert(`🚀 Abriendo ${platform}...\n\n📏 ${run.distance.toFixed(2)} km | ⏱️ ${fmtTime(run.duration)} | ⚡ ${fmtPace(run.distance, run.duration)} min/km`);
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-      <div style={{ background: "#12121f", borderRadius: 16, padding: 20, maxWidth: 380, width: "100%", maxHeight: "90vh", overflowY: "auto" }}>
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="zoom-in" style={{ background: "#12121f", borderRadius: 16, padding: 20, maxWidth: 380, width: "100%", maxHeight: "90vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}>
           <span style={{ color: "#fff", fontWeight: 700, fontSize: 16 }}>Compartir carrera</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#888", fontSize: 20, cursor: "pointer" }}>×</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "#888", fontSize: 22, cursor: "pointer", lineHeight: 1 }}>×</button>
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
           {["feed", "story"].map((t) => (
-            <button key={t} onClick={() => setShareType(t)} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: "pointer", background: shareType === t ? "#e040fb" : "#1e1e35", color: "#fff", fontWeight: 600, fontSize: 13 }}>
+            <button key={t} onClick={() => setShareType(t)} style={{ flex: 1, padding: "8px 0", borderRadius: 8, border: "none", cursor: "pointer", background: shareType === t ? "#e040fb" : "#1e1e35", color: "#fff", fontWeight: 600, fontSize: 13, transition: "all 0.2s" }}>
               {t === "feed" ? "📸 Feed" : "📱 Historia"}
             </button>
           ))}
         </div>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
-          <div style={{ width: w, height: h, background: "linear-gradient(135deg, #0f0f1e 0%, #1a0a2e 100%)", borderRadius: 12, position: "relative", overflow: "hidden", padding: isStory ? "32px 24px" : "20px", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: isStory ? "space-between" : "flex-start" }}>
+          <div style={{ width: 320, height: h, background: "linear-gradient(135deg, #0f0f1e 0%, #1a0a2e 100%)", borderRadius: 12, position: "relative", overflow: "hidden", padding: isStory ? "32px 24px" : "20px", boxSizing: "border-box", display: "flex", flexDirection: "column", justifyContent: isStory ? "space-between" : "flex-start" }}>
             <div style={{ position: "absolute", inset: 0, background: "radial-gradient(circle at 80% 20%, rgba(224,64,251,0.15) 0%, transparent 60%)", pointerEvents: "none" }} />
             <div>
               <div style={{ color: "#e040fb", fontSize: 11, fontWeight: 700, letterSpacing: 3, marginBottom: 4 }}>RATA FLO — JO</div>
@@ -193,7 +247,7 @@ function ShareCard({ run, onClose }) {
                 { icon: "⚡", label: "Ritmo", val: `${fmtPace(run.distance, run.duration)} /km` },
                 { icon: "🌤️", label: "Clima", val: run.weather || "—" },
               ].map((s) => (
-                <div key={s.label} style={{ background: "rgba(255,255,255,0.06)", borderRadius: 8, padding: isStory ? "12px" : "8px", backdropFilter: "blur(4px)" }}>
+                <div key={s.label} style={{ background: "rgba(255,255,255,0.06)", borderRadius: 8, padding: isStory ? "12px" : "8px" }}>
                   <div style={{ fontSize: isStory ? 18 : 14 }}>{s.icon}</div>
                   <div style={{ color: "#aaa", fontSize: 10, marginTop: 2 }}>{s.label}</div>
                   <div style={{ color: "#fff", fontWeight: 700, fontSize: isStory ? 16 : 13 }}>{s.val}</div>
@@ -219,7 +273,7 @@ function ShareCard({ run, onClose }) {
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button onClick={() => handleShare("Facebook")} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none", cursor: "pointer", background: "#1877f2", color: "#fff", fontWeight: 700, fontSize: 13 }}>
+          <button onClick={() => handleShare("Facebook")} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none", cursor: "pointer", background: "#1877f2", color: "#fff", fontWeight: 700, fontSize: 13, transition: "opacity 0.2s" }}>
             📘 Facebook
           </button>
           <button onClick={() => handleShare("Instagram")} style={{ flex: 1, padding: "10px 0", borderRadius: 10, border: "none", cursor: "pointer", background: "linear-gradient(45deg,#f09433,#e6683c,#dc2743,#cc2366,#bc1888)", color: "#fff", fontWeight: 700, fontSize: 13 }}>
@@ -231,14 +285,21 @@ function ShareCard({ run, onClose }) {
   );
 }
 
+// ─── POST RUN MODAL ───────────────────────────────────────────────────────────
 function PostRunModal({ run, onSave, onDiscard }) {
   const [sel, setSel] = useState(null);
   const [weather, setWeather] = useState("");
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    setTimeout(() => setVisible(true), 50);
+  }, []);
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 16 }}>
-      <div style={{ background: "#12121f", borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", maxHeight: "90vh", overflowY: "auto" }}>
+      <div style={{ background: "#12121f", borderRadius: 16, padding: 24, maxWidth: 380, width: "100%", maxHeight: "90vh", overflowY: "auto", opacity: visible ? 1 : 0, transform: visible ? "translateY(0)" : "translateY(30px)", transition: "all 0.4s ease" }}>
         <div style={{ textAlign: "center", marginBottom: 20 }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>🏁</div>
+          <div className="bounce-emoji" style={{ fontSize: 40, marginBottom: 8 }}>🏁</div>
           <div style={{ color: "#e040fb", fontWeight: 700, fontSize: 18 }}>¡Stopin!</div>
           <div style={{ color: "#888", fontSize: 13, marginTop: 4 }}>{run.distance.toFixed(2)} km · {fmtTime(run.duration)}</div>
         </div>
@@ -246,7 +307,7 @@ function PostRunModal({ run, onSave, onDiscard }) {
           <div style={{ color: "#aaa", fontSize: 12, marginBottom: 8, fontWeight: 600 }}>🌤️ ¿Cómo estaba el clima?</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {WEATHER_OPTIONS.map((w) => (
-              <button key={w} onClick={() => setWeather(w)} style={{ padding: "6px 10px", borderRadius: 20, border: `1px solid ${weather === w ? "#e040fb" : "#333"}`, background: weather === w ? "rgba(224,64,251,0.15)" : "transparent", color: weather === w ? "#e040fb" : "#aaa", fontSize: 12, cursor: "pointer" }}>
+              <button key={w} onClick={() => setWeather(w)} style={{ padding: "6px 10px", borderRadius: 20, border: `1px solid ${weather === w ? "#e040fb" : "#333"}`, background: weather === w ? "rgba(224,64,251,0.15)" : "transparent", color: weather === w ? "#e040fb" : "#aaa", fontSize: 12, cursor: "pointer", transition: "all 0.2s", transform: weather === w ? "scale(1.05)" : "scale(1)" }}>
                 {w}
               </button>
             ))}
@@ -256,7 +317,7 @@ function PostRunModal({ run, onSave, onDiscard }) {
           <div style={{ color: "#aaa", fontSize: 12, marginBottom: 8, fontWeight: 600 }}>¿Cómo te sientes?</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
             {EMOCIONES.map((e) => (
-              <button key={e.name} onClick={() => setSel(e)} style={{ padding: "8px", borderRadius: 10, border: `1px solid ${sel?.name === e.name ? "#e040fb" : "#2a2a40"}`, background: sel?.name === e.name ? "rgba(224,64,251,0.12)" : "#1a1a2e", cursor: "pointer", textAlign: "left" }}>
+              <button key={e.name} onClick={() => setSel(e)} style={{ padding: "8px", borderRadius: 10, border: `1px solid ${sel?.name === e.name ? "#e040fb" : "#2a2a40"}`, background: sel?.name === e.name ? "rgba(224,64,251,0.12)" : "#1a1a2e", cursor: "pointer", textAlign: "left", transition: "all 0.2s", transform: sel?.name === e.name ? "scale(1.04)" : "scale(1)" }}>
                 <div style={{ fontSize: 18 }}>{e.emoji}</div>
                 <div style={{ color: sel?.name === e.name ? "#e040fb" : "#ccc", fontSize: 11, fontWeight: 600, marginTop: 2 }}>{e.name}</div>
               </button>
@@ -267,7 +328,7 @@ function PostRunModal({ run, onSave, onDiscard }) {
           <button onClick={onDiscard} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1px solid #333", background: "transparent", color: "#888", fontWeight: 600, cursor: "pointer" }}>
             Descartar
           </button>
-          <button onClick={() => sel && onSave({ ...run, weather, emotion: sel })} disabled={!sel} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: sel ? "#e040fb" : "#333", color: "#fff", fontWeight: 700, cursor: sel ? "pointer" : "not-allowed", fontSize: 15 }}>
+          <button onClick={() => sel && onSave({ ...run, weather, emotion: sel })} disabled={!sel} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: sel ? "#e040fb" : "#333", color: "#fff", fontWeight: 700, cursor: sel ? "pointer" : "not-allowed", fontSize: 15, transition: "all 0.3s", transform: sel ? "scale(1.02)" : "scale(1)" }}>
             Guardar carrera 💾
           </button>
         </div>
@@ -276,8 +337,25 @@ function PostRunModal({ run, onSave, onDiscard }) {
   );
 }
 
+// ─── LEVEL UP NOTIFICATION ────────────────────────────────────────────────────
+function LevelUpBanner({ level }) {
+  if (!level) return null;
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", zIndex: 250, pointerEvents: "none" }}>
+      <div style={{ background: "linear-gradient(135deg, #7c4dff, #e040fb)", borderRadius: 24, padding: "28px 36px", textAlign: "center", animation: "level-pop 0.5s ease forwards", boxShadow: "0 0 60px rgba(224,64,251,0.5)" }}>
+        <div style={{ fontSize: 56, marginBottom: 4 }}>{level.emoji}</div>
+        <div style={{ color: "#fff", fontWeight: 900, fontSize: 18, letterSpacing: 1 }}>¡NIVEL {level.level}!</div>
+        <div style={{ color: "rgba(255,255,255,0.85)", fontSize: 14, marginTop: 4 }}>{level.name}</div>
+        <div style={{ color: "rgba(255,255,255,0.6)", fontSize: 11, marginTop: 6, fontStyle: "italic" }}>{level.desc}</div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function RataFloJo({ session, onLogout }) {
   const [tab, setTab] = useState("inicio");
+  const [prevTab, setPrevTab] = useState("inicio");
   const [runs, setRuns] = useState([]);
   const [runsLoading, setRunsLoading] = useState(true);
   const [running, setRunning] = useState(false);
@@ -288,6 +366,7 @@ export default function RataFloJo({ session, onLogout }) {
   const [postRun, setPostRun] = useState(null);
   const [shareRun, setShareRun] = useState(null);
   const [newLevel, setNewLevel] = useState(null);
+  const [showConfetti, setShowConfetti] = useState(false);
   const timerRef = useRef(null);
   const watchRef = useRef(null);
   const startTimeRef = useRef(null);
@@ -296,20 +375,28 @@ export default function RataFloJo({ session, onLogout }) {
   const currentLevel = getCurrentLevel(totalKm);
   const nextLevel = getNextLevel(totalKm);
 
-  // Cargar carreras desde Supabase
+  useEffect(() => {
+    const style = document.createElement("style");
+    style.textContent = GLOBAL_STYLES;
+    document.head.appendChild(style);
+    return () => document.head.removeChild(style);
+  }, []);
+
   useEffect(() => {
     if (!session) return;
     const loadRuns = async () => {
       setRunsLoading(true);
-      const { data, error } = await supabase
-        .from("runs")
-        .select("*")
-        .order("date", { ascending: false });
+      const { data, error } = await supabase.from("runs").select("*").order("date", { ascending: false });
       if (!error && data) setRuns(data);
       setRunsLoading(false);
     };
     loadRuns();
   }, [session]);
+
+  const changeTab = useCallback((newTab) => {
+    setPrevTab(tab);
+    setTab(newTab);
+  }, [tab]);
 
   const startRun = useCallback(() => {
     setGpsError(null);
@@ -360,13 +447,13 @@ export default function RataFloJo({ session, onLogout }) {
       emotion: runData.emotion,
     }]).select().single();
 
-    if (!error && data) {
-      setRuns((prev) => [data, ...prev]);
-    }
+    if (!error && data) setRuns((prev) => [data, ...prev]);
     setPostRun(null);
+
     if (newLvl.level > prevLevel.level) {
       setNewLevel(newLvl);
-      setTimeout(() => setNewLevel(null), 4000);
+      setShowConfetti(true);
+      setTimeout(() => { setNewLevel(null); setShowConfetti(false); }, 4000);
     }
   }, [runs, session]);
 
@@ -381,6 +468,7 @@ export default function RataFloJo({ session, onLogout }) {
 
   return (
     <div style={{ minHeight: "100vh", background: "#0a0a14", color: "#fff", fontFamily: "'Segoe UI', sans-serif", maxWidth: 420, margin: "0 auto", position: "relative" }}>
+
       {/* Header */}
       <div style={{ padding: "16px 20px 8px", background: "linear-gradient(180deg, #0f0f22 0%, transparent 100%)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -393,7 +481,7 @@ export default function RataFloJo({ session, onLogout }) {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 20 }}>{currentLevel.emoji}</div>
+              <div className="float-anim" style={{ fontSize: 20 }}>{currentLevel.emoji}</div>
               <div style={{ fontSize: 10, color: "#888" }}>Nv. {currentLevel.level}</div>
               <div style={{ fontSize: 11, color: "#e040fb", fontWeight: 600 }}>{totalKm.toFixed(1)} km</div>
             </div>
@@ -404,17 +492,14 @@ export default function RataFloJo({ session, onLogout }) {
         </div>
       </div>
 
-      {/* Level up notification */}
-      {newLevel && (
-        <div style={{ position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)", background: "#e040fb", borderRadius: 16, padding: "12px 20px", zIndex: 200, textAlign: "center" }}>
-          <div style={{ fontSize: 30 }}>{newLevel.emoji}</div>
-          <div style={{ color: "#fff", fontWeight: 800, fontSize: 14 }}>¡NIVEL {newLevel.level}!</div>
-          <div style={{ color: "rgba(255,255,255,0.8)", fontSize: 12 }}>{newLevel.name}</div>
-        </div>
-      )}
+      {/* Confetti */}
+      <Confetti active={showConfetti} />
+
+      {/* Level up */}
+      <LevelUpBanner level={newLevel} />
 
       {/* Content */}
-      <div style={{ padding: "0 16px 80px" }}>
+      <div key={tab} style={{ padding: "0 16px 80px", animation: "tab-slide 0.3s ease forwards" }}>
         {tab === "inicio" && (
           <TabInicio
             running={running}
@@ -442,10 +527,10 @@ export default function RataFloJo({ session, onLogout }) {
           { id: "historial", icon: "📋", label: "Historial" },
           { id: "niveles", icon: "👑", label: "Niveles" },
         ].map((t) => (
-          <button key={t.id} onClick={() => setTab(t.id)} style={{ flex: 1, padding: "12px 0", background: "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, opacity: tab === t.id ? 1 : 0.45 }}>
-            <span style={{ fontSize: 20 }}>{t.icon}</span>
+          <button key={t.id} onClick={() => changeTab(t.id)} style={{ flex: 1, padding: "12px 0", background: "transparent", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 2, opacity: tab === t.id ? 1 : 0.45, transition: "opacity 0.2s" }}>
+            <span style={{ fontSize: 20, transition: "transform 0.2s", transform: tab === t.id ? "scale(1.2)" : "scale(1)" }}>{t.icon}</span>
             <span style={{ fontSize: 10, color: tab === t.id ? "#e040fb" : "#aaa", fontWeight: tab === t.id ? 700 : 400 }}>{t.label}</span>
-            {tab === t.id && <div style={{ width: 20, height: 2, background: "#e040fb", borderRadius: 1 }} />}
+            {tab === t.id && <div style={{ width: 20, height: 2, background: "#e040fb", borderRadius: 1, animation: "fadeInUp 0.2s ease" }} />}
           </button>
         ))}
       </div>
@@ -456,112 +541,149 @@ export default function RataFloJo({ session, onLogout }) {
   );
 }
 
+// ─── TAB INICIO ───────────────────────────────────────────────────────────────
 function TabInicio({ running, elapsed, distance, coords, gpsError, onStart, onStop, currentLevel, nextLevel, totalKm }) {
   const pace = fmtPace(distance, elapsed);
-  const nextKm = nextLevel ? nextLevel.km : currentLevel.km;
   const progress = nextLevel ? Math.min(((totalKm - currentLevel.km) / (nextLevel.km - currentLevel.km)) * 100, 100) : 100;
+  const [btnPressed, setBtnPressed] = useState(false);
+
+  const handleStart = () => {
+    setBtnPressed(true);
+    setTimeout(() => { setBtnPressed(false); onStart(); }, 200);
+  };
+
+  const handleStop = () => {
+    setBtnPressed(true);
+    setTimeout(() => { setBtnPressed(false); onStop(); }, 200);
+  };
+
+  if (running) {
+    return (
+      <div style={{ textAlign: "center", paddingTop: 20 }}>
+        {/* GPS indicator */}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(0,230,118,0.1)", borderRadius: 20, padding: "6px 14px", marginBottom: 20, position: "relative" }}>
+          <div style={{ position: "relative", width: 12, height: 12 }}>
+            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#00e676", position: "absolute", top: 2, left: 2 }} />
+            <div style={{ width: 12, height: 12, borderRadius: "50%", background: "rgba(0,230,118,0.4)", position: "absolute", animation: "gps-ping 1.5s ease-out infinite" }} />
+          </div>
+          <span style={{ color: "#00e676", fontSize: 12, fontWeight: 700 }}>GPS ACTIVO</span>
+        </div>
+
+        {/* Timer */}
+        <div className="fade-in-up" style={{ fontSize: 60, fontWeight: 900, color: "#fff", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+          {fmtTime(elapsed)}
+        </div>
+        <div style={{ color: "#555", fontSize: 12, marginBottom: 24 }}>tiempo</div>
+
+        {/* Stats */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
+          {[
+            { val: distance.toFixed(2), unit: "km", color: "#e040fb" },
+            { val: pace, unit: "min/km", color: "#7c4dff" },
+          ].map((s, i) => (
+            <div key={i} style={{ background: "#1a1a2e", borderRadius: 12, padding: 16, animation: `fadeInUp 0.4s ${i * 0.1}s ease both` }}>
+              <div style={{ fontSize: 30, fontWeight: 800, color: s.color, fontVariantNumeric: "tabular-nums" }}>{s.val}</div>
+              <div style={{ color: "#555", fontSize: 12 }}>{s.unit}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Mini map */}
+        {coords.length > 1 && (
+          <div className="fade-in-up" style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
+            <MiniMap coords={coords} size={200} />
+          </div>
+        )}
+
+        {/* Stop button */}
+        <button onClick={handleStop} style={{ width: "100%", padding: "18px 0", borderRadius: 16, border: "none", background: "linear-gradient(135deg, #ff1744, #d50000)", color: "#fff", fontSize: 20, fontWeight: 900, cursor: "pointer", letterSpacing: 2, transition: "transform 0.15s", transform: btnPressed ? "scale(0.96)" : "scale(1)", boxShadow: "0 4px 20px rgba(255,23,68,0.4)" }}>
+          STOPIN 🛑
+        </button>
+      </div>
+    );
+  }
 
   return (
-    <div>
-      {running ? (
-        <div style={{ textAlign: "center", paddingTop: 20 }}>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(0,230,118,0.1)", borderRadius: 20, padding: "6px 14px", marginBottom: 20 }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#00e676", animation: "blink 1s infinite" }} />
-            <span style={{ color: "#00e676", fontSize: 12, fontWeight: 700 }}>GPS ACTIVO</span>
+    <div style={{ paddingTop: 16 }}>
+      {/* Level card */}
+      <div className="fade-in-up" style={{ background: "#1a1a2e", borderRadius: 16, padding: 20, marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <span className="float-anim" style={{ fontSize: 42 }}>{currentLevel.emoji}</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: "#e040fb", fontSize: 11, fontWeight: 700 }}>NIVEL {currentLevel.level}</div>
+            <div style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>{currentLevel.name}</div>
+            <div style={{ color: "#666", fontSize: 11 }}>{currentLevel.desc}</div>
           </div>
-          <div style={{ fontSize: 56, fontWeight: 900, color: "#fff", lineHeight: 1 }}>{fmtTime(elapsed)}</div>
-          <div style={{ color: "#888", fontSize: 13, marginBottom: 24 }}>tiempo</div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
-            <div style={{ background: "#1a1a2e", borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 28, fontWeight: 800, color: "#e040fb" }}>{distance.toFixed(2)}</div>
-              <div style={{ color: "#666", fontSize: 12 }}>kilómetros</div>
-            </div>
-            <div style={{ background: "#1a1a2e", borderRadius: 12, padding: 16 }}>
-              <div style={{ fontSize: 28, fontWeight: 800, color: "#7c4dff" }}>{pace}</div>
-              <div style={{ color: "#666", fontSize: 12 }}>min/km</div>
-            </div>
-          </div>
-          {coords.length > 1 && (
-            <div style={{ display: "flex", justifyContent: "center", marginBottom: 24 }}>
-              <MiniMap coords={coords} size={200} />
-            </div>
-          )}
-          <button onClick={onStop} style={{ width: "100%", padding: "18px 0", borderRadius: 16, border: "none", background: "linear-gradient(135deg, #ff1744, #d50000)", color: "#fff", fontSize: 20, fontWeight: 900, cursor: "pointer", letterSpacing: 2 }}>
-            STOPIN 🛑
-          </button>
         </div>
-      ) : (
-        <div style={{ paddingTop: 16 }}>
-          <div style={{ background: "#1a1a2e", borderRadius: 16, padding: 20, marginBottom: 16 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={{ fontSize: 40 }}>{currentLevel.emoji}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ color: "#e040fb", fontSize: 11, fontWeight: 700 }}>NIVEL {currentLevel.level}</div>
-                <div style={{ color: "#fff", fontWeight: 700, fontSize: 14 }}>{currentLevel.name}</div>
-                <div style={{ color: "#888", fontSize: 11 }}>{currentLevel.desc}</div>
-              </div>
+        {nextLevel && (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+              <span style={{ fontSize: 10, color: "#555" }}>→ {nextLevel.emoji} {nextLevel.name}</span>
+              <span style={{ fontSize: 10, color: "#666" }}>{totalKm.toFixed(1)} / {nextLevel.km} km</span>
             </div>
-            {nextLevel && (
-              <div style={{ marginTop: 14 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                  <span style={{ fontSize: 10, color: "#666" }}>Próximo: {nextLevel.emoji} {nextLevel.name}</span>
-                  <span style={{ fontSize: 10, color: "#888" }}>{totalKm.toFixed(1)} / {nextLevel.km} km</span>
-                </div>
-                <div style={{ background: "#0f0f1e", borderRadius: 4, height: 6 }}>
-                  <div style={{ width: `${progress}%`, height: "100%", background: "linear-gradient(90deg, #7c4dff, #e040fb)", borderRadius: 4, transition: "width 0.5s" }} />
-                </div>
-              </div>
-            )}
+            <div style={{ background: "#0f0f1e", borderRadius: 6, height: 7, overflow: "hidden" }}>
+              <div style={{ width: `${progress}%`, height: "100%", background: "linear-gradient(90deg, #7c4dff, #e040fb)", borderRadius: 6, transition: "width 1s ease" }} />
+            </div>
           </div>
-          {gpsError && (
-            <div style={{ background: "rgba(255,23,68,0.1)", border: "1px solid rgba(255,23,68,0.3)", borderRadius: 10, padding: 12, marginBottom: 16, color: "#ff5252", fontSize: 13 }}>
-              ⚠️ {gpsError}
-            </div>
-          )}
-          <button onClick={onStart} style={{ width: "100%", padding: "22px 0", borderRadius: 20, border: "none", background: "linear-gradient(135deg, #7c4dff, #e040fb)", color: "#fff", fontSize: 22, fontWeight: 900, cursor: "pointer", letterSpacing: 3, boxShadow: "0 0 40px rgba(224,64,251,0.3)" }}>
-            LE — RI — GO 🐀
-          </button>
-          <div style={{ textAlign: "center", color: "#555", fontSize: 11, marginTop: 10 }}>Activa el GPS al salir a correr</div>
+        )}
+      </div>
+
+      {gpsError && (
+        <div className="fade-in-up" style={{ background: "rgba(255,23,68,0.1)", border: "1px solid rgba(255,23,68,0.3)", borderRadius: 10, padding: 12, marginBottom: 16, color: "#ff5252", fontSize: 13 }}>
+          ⚠️ {gpsError}
         </div>
       )}
-      <style>{`@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }`}</style>
+
+      {/* Le-ri-go button */}
+      <button
+        onClick={handleStart}
+        className="btn-lrg"
+        style={{ width: "100%", padding: "22px 0", borderRadius: 20, border: "none", background: "linear-gradient(135deg, #7c4dff, #e040fb)", color: "#fff", fontSize: 22, fontWeight: 900, cursor: "pointer", letterSpacing: 3, transform: btnPressed ? "scale(0.96)" : "scale(1)", transition: "transform 0.15s" }}
+      >
+        LE — RI — GO 🐀
+      </button>
+      <div style={{ textAlign: "center", color: "#444", fontSize: 11, marginTop: 10 }}>Activa el GPS al salir a correr</div>
     </div>
   );
 }
 
+// ─── TAB HISTORIAL ────────────────────────────────────────────────────────────
 function TabHistorial({ runs, loading, onShare, onDelete }) {
   const [confirmDel, setConfirmDel] = useState(null);
+
   if (loading) {
     return (
-      <div style={{ textAlign: "center", paddingTop: 60, color: "#555" }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>🐀</div>
-        <div style={{ fontSize: 14, color: "#666" }}>Cargando carreras...</div>
+      <div style={{ textAlign: "center", paddingTop: 60 }}>
+        <div className="bounce-emoji" style={{ fontSize: 36, marginBottom: 12 }}>🐀</div>
+        <div style={{ fontSize: 14, color: "#555" }}>Cargando carreras...</div>
       </div>
     );
   }
+
   if (runs.length === 0) {
     return (
-      <div style={{ textAlign: "center", paddingTop: 60, color: "#555" }}>
-        <div style={{ fontSize: 48, marginBottom: 12 }}>🐀</div>
-        <div style={{ fontSize: 16, color: "#888" }}>Todavía no hay carreras.</div>
-        <div style={{ fontSize: 13, marginTop: 6 }}>¡Dale Le-ri-go!</div>
+      <div style={{ textAlign: "center", paddingTop: 60 }}>
+        <div className="float-anim" style={{ fontSize: 48, marginBottom: 12 }}>🐀</div>
+        <div style={{ fontSize: 16, color: "#666" }}>Todavía no hay carreras.</div>
+        <div style={{ fontSize: 13, color: "#444", marginTop: 6 }}>¡Dale Le-ri-go!</div>
       </div>
     );
   }
+
   return (
     <div style={{ paddingTop: 16 }}>
-      <div style={{ color: "#888", fontSize: 12, marginBottom: 12 }}>{runs.length} carrera{runs.length !== 1 ? "s" : ""} registrada{runs.length !== 1 ? "s" : ""}</div>
-      {runs.map((r) => (
-        <div key={r.id} style={{ background: "#1a1a2e", borderRadius: 14, padding: 16, marginBottom: 10 }}>
+      <div style={{ color: "#555", fontSize: 12, marginBottom: 12 }}>{runs.length} carrera{runs.length !== 1 ? "s" : ""} registrada{runs.length !== 1 ? "s" : ""}</div>
+      {runs.map((r, idx) => (
+        <div key={r.id} className="fade-in-up" style={{ background: "#1a1a2e", borderRadius: 14, padding: 16, marginBottom: 10, animation: `fadeInUp 0.3s ${idx * 0.05}s ease both` }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
             <div>
               <div style={{ color: "#e040fb", fontSize: 11, fontWeight: 700 }}>{new Date(r.date).toLocaleDateString("es-PE", { weekday: "short", day: "numeric", month: "short" }).toUpperCase()}</div>
-              <div style={{ color: "#fff", fontSize: 18, fontWeight: 800 }}>{r.distance.toFixed(2)} km</div>
+              <div style={{ color: "#fff", fontSize: 20, fontWeight: 800 }}>{r.distance.toFixed(2)} km</div>
             </div>
             {r.emotion && (
               <div style={{ textAlign: "center" }}>
-                <div style={{ fontSize: 24 }}>{r.emotion.emoji}</div>
-                <div style={{ fontSize: 9, color: "#888", maxWidth: 80, textAlign: "center" }}>{r.emotion.name}</div>
+                <div className="float-anim" style={{ fontSize: 26 }}>{r.emotion.emoji}</div>
+                <div style={{ fontSize: 9, color: "#555", maxWidth: 80, textAlign: "center" }}>{r.emotion.name}</div>
               </div>
             )}
           </div>
@@ -573,7 +695,7 @@ function TabHistorial({ runs, loading, onShare, onDelete }) {
             ].map((s) => (
               <div key={s.icon} style={{ background: "#0f0f1e", borderRadius: 8, padding: "6px 8px", textAlign: "center" }}>
                 <div style={{ fontSize: 14 }}>{s.icon}</div>
-                <div style={{ color: "#ccc", fontSize: 11, fontWeight: 600 }}>{s.val}</div>
+                <div style={{ color: "#aaa", fontSize: 11, fontWeight: 600 }}>{s.val}</div>
               </div>
             ))}
           </div>
@@ -583,7 +705,7 @@ function TabHistorial({ runs, loading, onShare, onDelete }) {
             </div>
           )}
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => onShare(r)} style={{ flex: 1, padding: "9px 0", borderRadius: 10, border: "none", background: "rgba(224,64,251,0.15)", color: "#e040fb", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            <button onClick={() => onShare(r)} style={{ flex: 1, padding: "9px 0", borderRadius: 10, border: "none", background: "rgba(224,64,251,0.15)", color: "#e040fb", fontWeight: 700, fontSize: 13, cursor: "pointer", transition: "background 0.2s" }}>
               📤 Compartir
             </button>
             {confirmDel === r.id ? (
@@ -591,12 +713,12 @@ function TabHistorial({ runs, loading, onShare, onDelete }) {
                 <button onClick={() => { onDelete(r.id); setConfirmDel(null); }} style={{ flex: 1, padding: "9px 0", borderRadius: 10, border: "none", background: "#ff1744", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
                   Confirmar 🗑️
                 </button>
-                <button onClick={() => setConfirmDel(null)} style={{ padding: "9px 12px", borderRadius: 10, border: "1px solid #333", background: "transparent", color: "#888", fontSize: 13, cursor: "pointer" }}>
+                <button onClick={() => setConfirmDel(null)} style={{ padding: "9px 12px", borderRadius: 10, border: "1px solid #333", background: "transparent", color: "#666", fontSize: 13, cursor: "pointer" }}>
                   No
                 </button>
               </>
             ) : (
-              <button onClick={() => setConfirmDel(r.id)} style={{ padding: "9px 12px", borderRadius: 10, border: "1px solid #2a2a40", background: "transparent", color: "#555", fontSize: 18, cursor: "pointer" }}>
+              <button onClick={() => setConfirmDel(r.id)} style={{ padding: "9px 12px", borderRadius: 10, border: "1px solid #2a2a40", background: "transparent", color: "#444", fontSize: 18, cursor: "pointer", transition: "color 0.2s" }}>
                 🗑️
               </button>
             )}
@@ -607,6 +729,7 @@ function TabHistorial({ runs, loading, onShare, onDelete }) {
   );
 }
 
+// ─── TAB NIVELES ──────────────────────────────────────────────────────────────
 function TabNiveles({ totalKm, currentLevel }) {
   const stages = [
     { name: "Sobrevivir", range: [1, 10] },
@@ -621,32 +744,34 @@ function TabNiveles({ totalKm, currentLevel }) {
 
   return (
     <div style={{ paddingTop: 16 }}>
-      <div style={{ background: "linear-gradient(135deg, #1a0a2e, #0f0f22)", borderRadius: 16, padding: 16, marginBottom: 20, textAlign: "center" }}>
-        <div style={{ fontSize: 48 }}>{currentLevel.emoji}</div>
-        <div style={{ color: "#e040fb", fontWeight: 800, fontSize: 20 }}>{currentLevel.name}</div>
-        <div style={{ color: "#888", fontSize: 12, marginTop: 4 }}>{currentLevel.desc}</div>
-        <div style={{ color: "#555", fontSize: 11, marginTop: 8 }}>{totalKm.toFixed(1)} km acumulados</div>
+      {/* Current level hero */}
+      <div className="fade-in-up" style={{ background: "linear-gradient(135deg, #1a0a2e, #0f0f22)", borderRadius: 16, padding: 20, marginBottom: 20, textAlign: "center", border: "1px solid rgba(224,64,251,0.2)" }}>
+        <div className="float-anim" style={{ fontSize: 52, marginBottom: 6 }}>{currentLevel.emoji}</div>
+        <div style={{ color: "#e040fb", fontWeight: 800, fontSize: 18 }}>{currentLevel.name}</div>
+        <div style={{ color: "#666", fontSize: 12, marginTop: 4 }}>{currentLevel.desc}</div>
+        <div style={{ color: "#444", fontSize: 11, marginTop: 8 }}>{totalKm.toFixed(1)} km acumulados</div>
       </div>
-      {stages.map((stage) => {
+
+      {stages.map((stage, si) => {
         const stageLevels = LEVELS.filter((l) => l.level >= stage.range[0] && l.level <= stage.range[1]);
         const anyUnlocked = stageLevels.some((l) => totalKm >= l.km);
         return (
-          <div key={stage.name} style={{ marginBottom: 16 }}>
-            <div style={{ color: anyUnlocked ? "#e040fb" : "#444", fontSize: 11, fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>
-              {stage.name}
+          <div key={stage.name} style={{ marginBottom: 16, animation: `fadeInUp 0.3s ${si * 0.06}s ease both` }}>
+            <div style={{ color: anyUnlocked ? "#e040fb" : "#333", fontSize: 10, fontWeight: 700, letterSpacing: 1, marginBottom: 8, textTransform: "uppercase" }}>
+              {anyUnlocked ? "✦ " : ""}{stage.name}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
               {stageLevels.map((l) => {
                 const unlocked = totalKm >= l.km;
                 const isCurrent = l.level === currentLevel.level;
                 return (
-                  <div key={l.level} style={{ background: isCurrent ? "rgba(224,64,251,0.15)" : unlocked ? "#1a1a2e" : "#0f0f18", borderRadius: 10, padding: 12, border: isCurrent ? "1px solid #e040fb" : "1px solid transparent", opacity: unlocked ? 1 : 0.4 }}>
+                  <div key={l.level} style={{ background: isCurrent ? "rgba(224,64,251,0.12)" : unlocked ? "#1a1a2e" : "#0c0c18", borderRadius: 10, padding: 12, border: isCurrent ? "1px solid #e040fb" : "1px solid transparent", opacity: unlocked ? 1 : 0.35, transition: "all 0.2s" }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-                      <span style={{ fontSize: 22 }}>{unlocked ? l.emoji : "🔒"}</span>
-                      <span style={{ fontSize: 10, color: unlocked ? "#e040fb" : "#444", fontWeight: 700 }}>Nv.{l.level}</span>
+                      <span style={{ fontSize: 22, filter: unlocked ? "none" : "grayscale(1)" }}>{unlocked ? l.emoji : "🔒"}</span>
+                      <span style={{ fontSize: 10, color: isCurrent ? "#e040fb" : "#444", fontWeight: 700 }}>Nv.{l.level}</span>
                     </div>
-                    <div style={{ color: unlocked ? "#fff" : "#444", fontSize: 11, fontWeight: 700, marginTop: 4 }}>{l.name}</div>
-                    <div style={{ color: "#555", fontSize: 10, marginTop: 2 }}>{l.km} km</div>
+                    <div style={{ color: unlocked ? "#ddd" : "#333", fontSize: 11, fontWeight: 700, marginTop: 4 }}>{l.name}</div>
+                    <div style={{ color: "#444", fontSize: 10, marginTop: 2 }}>{l.km} km</div>
                   </div>
                 );
               })}
