@@ -539,7 +539,7 @@ function TabHistorial({ runs, loading, onShare, onDelete }) {
       </div>
     );
   }
-  const [confirmDel, setConfirmDel] = useState(null);
+  if (runs.length === 0) {
     return (
       <div style={{ textAlign: "center", paddingTop: 60, color: "#555" }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>🐀</div>
