@@ -288,7 +288,6 @@ function ShareCard({ run, onClose }) {
 // ─── POST RUN MODAL ───────────────────────────────────────────────────────────
 function PostRunModal({ run, onSave, onDiscard }) {
   const [sel, setSel] = useState(null);
-  const [weather, setWeather] = useState("");
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -302,16 +301,11 @@ function PostRunModal({ run, onSave, onDiscard }) {
           <div className="bounce-emoji" style={{ fontSize: 40, marginBottom: 8 }}>🏁</div>
           <div style={{ color: "#e040fb", fontWeight: 700, fontSize: 18 }}>¡Stopin!</div>
           <div style={{ color: "#888", fontSize: 13, marginTop: 4 }}>{run.distance.toFixed(2)} km · {fmtTime(run.duration)}</div>
-        </div>
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ color: "#aaa", fontSize: 12, marginBottom: 8, fontWeight: 600 }}>🌤️ ¿Cómo estaba el clima?</div>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-            {WEATHER_OPTIONS.map((w) => (
-              <button key={w} onClick={() => setWeather(w)} style={{ padding: "6px 10px", borderRadius: 20, border: `1px solid ${weather === w ? "#e040fb" : "#333"}`, background: weather === w ? "rgba(224,64,251,0.15)" : "transparent", color: weather === w ? "#e040fb" : "#aaa", fontSize: 12, cursor: "pointer", transition: "all 0.2s", transform: weather === w ? "scale(1.05)" : "scale(1)" }}>
-                {w}
-              </button>
-            ))}
-          </div>
+          {run.weather && (
+            <div style={{ marginTop: 8, display: "inline-block", background: "rgba(255,255,255,0.05)", borderRadius: 20, padding: "4px 12px", fontSize: 12, color: "#aaa" }}>
+              {run.weather}
+            </div>
+          )}
         </div>
         <div style={{ marginBottom: 20 }}>
           <div style={{ color: "#aaa", fontSize: 12, marginBottom: 8, fontWeight: 600 }}>¿Cómo te sientes?</div>
@@ -328,7 +322,7 @@ function PostRunModal({ run, onSave, onDiscard }) {
           <button onClick={onDiscard} style={{ flex: 1, padding: "12px 0", borderRadius: 10, border: "1px solid #333", background: "transparent", color: "#888", fontWeight: 600, cursor: "pointer" }}>
             Descartar
           </button>
-          <button onClick={() => sel && onSave({ ...run, weather, emotion: sel })} disabled={!sel} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: sel ? "#e040fb" : "#333", color: "#fff", fontWeight: 700, cursor: sel ? "pointer" : "not-allowed", fontSize: 15, transition: "all 0.3s", transform: sel ? "scale(1.02)" : "scale(1)" }}>
+          <button onClick={() => sel && onSave({ ...run, emotion: sel })} disabled={!sel} style={{ flex: 2, padding: "12px 0", borderRadius: 10, border: "none", background: sel ? "#e040fb" : "#333", color: "#fff", fontWeight: 700, cursor: sel ? "pointer" : "not-allowed", fontSize: 15, transition: "all 0.3s", transform: sel ? "scale(1.02)" : "scale(1)" }}>
             Guardar carrera 💾
           </button>
         </div>
@@ -352,6 +346,28 @@ function LevelUpBanner({ level }) {
   );
 }
 
+// ─── WEATHER FETCH ────────────────────────────────────────────────────────────
+async function fetchWeather(lat, lon) {
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&timezone=auto`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const code = data?.current?.weather_code ?? -1;
+    const temp = Math.round(data?.current?.temperature_2m ?? 0);
+    let icon = "🌤️", label = "Despejado";
+    if (code === 0) { icon = "☀️"; label = "Soleado"; }
+    else if (code <= 3) { icon = "⛅"; label = "Nublado"; }
+    else if (code <= 49) { icon = "🌫️"; label = "Neblina"; }
+    else if (code <= 67) { icon = "🌧️"; label = "Lloviendo"; }
+    else if (code <= 77) { icon = "❄️"; label = "Nieve"; }
+    else if (code <= 82) { icon = "🌧️"; label = "Lluvia fuerte"; }
+    else if (code <= 99) { icon = "⛈️"; label = "Tormenta"; }
+    return `${icon} ${label} ${temp}°C`;
+  } catch {
+    return "🌤️ Sin datos";
+  }
+}
+
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
 export default function RataFloJo({ session, onLogout }) {
   const [tab, setTab] = useState("inicio");
@@ -363,6 +379,7 @@ export default function RataFloJo({ session, onLogout }) {
   const [coords, setCoords] = useState([]);
   const [distance, setDistance] = useState(0);
   const [gpsError, setGpsError] = useState(null);
+  const [weather, setWeather] = useState(null);
   const [postRun, setPostRun] = useState(null);
   const [shareRun, setShareRun] = useState(null);
   const [newLevel, setNewLevel] = useState(null);
@@ -370,6 +387,7 @@ export default function RataFloJo({ session, onLogout }) {
   const timerRef = useRef(null);
   const watchRef = useRef(null);
   const startTimeRef = useRef(null);
+  const firstGpsRef = useRef(false);
 
   const totalKm = runs.reduce((s, r) => s + (r.distance || 0), 0);
   const currentLevel = getCurrentLevel(totalKm);
@@ -393,6 +411,23 @@ export default function RataFloJo({ session, onLogout }) {
     loadRuns();
   }, [session]);
 
+  // Recalculate elapsed using real clock (survives screen-off)
+  useEffect(() => {
+    if (!running) return;
+    const tick = () => {
+      if (startTimeRef.current) {
+        setElapsed(Math.floor((Date.now() - startTimeRef.current) / 1000));
+      }
+    };
+    timerRef.current = setInterval(tick, 1000);
+    const onVisible = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(timerRef.current);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [running]);
+
   const changeTab = useCallback((newTab) => {
     setPrevTab(tab);
     setTab(newTab);
@@ -403,6 +438,8 @@ export default function RataFloJo({ session, onLogout }) {
     setCoords([]);
     setDistance(0);
     setElapsed(0);
+    setWeather(null);
+    firstGpsRef.current = false;
     startTimeRef.current = Date.now();
     if (!navigator.geolocation) {
       setGpsError("Tu navegador no soporta GPS.");
@@ -410,7 +447,14 @@ export default function RataFloJo({ session, onLogout }) {
     }
     watchRef.current = navigator.geolocation.watchPosition(
       (pos) => {
+        // Filter imprecise GPS points (> 30m accuracy)
+        if (pos.coords.accuracy > 30) return;
         const pt = [pos.coords.latitude, pos.coords.longitude];
+        // Fetch weather only once on first good GPS fix
+        if (!firstGpsRef.current) {
+          firstGpsRef.current = true;
+          fetchWeather(pos.coords.latitude, pos.coords.longitude).then(setWeather);
+        }
         setCoords((prev) => {
           const next = [...prev, pt];
           setDistance(calcDistance(next));
@@ -418,9 +462,8 @@ export default function RataFloJo({ session, onLogout }) {
         });
       },
       () => setGpsError("No se pudo obtener ubicación. Verifica permisos de GPS."),
-      { enableHighAccuracy: true, maximumAge: 2000, timeout: 10000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 }
     );
-    timerRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
     setRunning(true);
   }, []);
 
@@ -428,8 +471,10 @@ export default function RataFloJo({ session, onLogout }) {
     clearInterval(timerRef.current);
     if (watchRef.current) navigator.geolocation.clearWatch(watchRef.current);
     setRunning(false);
-    setPostRun({ distance, duration: elapsed, coords, date: new Date().toISOString() });
-  }, [distance, elapsed, coords]);
+    const finalElapsed = startTimeRef.current ? Math.floor((Date.now() - startTimeRef.current) / 1000) : elapsed;
+    setPostRun({ distance, duration: finalElapsed, coords, date: new Date().toISOString(), weather });
+  }, [distance, elapsed, coords, weather]);
+
 
   const saveRun = useCallback(async (runData) => {
     const prevTotal = runs.reduce((s, r) => s + (r.distance || 0), 0);
@@ -507,6 +552,7 @@ export default function RataFloJo({ session, onLogout }) {
             distance={distance}
             coords={coords}
             gpsError={gpsError}
+            weather={weather}
             onStart={startRun}
             onStop={stopRun}
             currentLevel={currentLevel}
@@ -542,7 +588,7 @@ export default function RataFloJo({ session, onLogout }) {
 }
 
 // ─── TAB INICIO ───────────────────────────────────────────────────────────────
-function TabInicio({ running, elapsed, distance, coords, gpsError, onStart, onStop, currentLevel, nextLevel, totalKm }) {
+function TabInicio({ running, elapsed, distance, coords, gpsError, weather, onStart, onStop, currentLevel, nextLevel, totalKm }) {
   const pace = fmtPace(distance, elapsed);
   const progress = nextLevel ? Math.min(((totalKm - currentLevel.km) / (nextLevel.km - currentLevel.km)) * 100, 100) : 100;
   const [btnPressed, setBtnPressed] = useState(false);
@@ -560,13 +606,20 @@ function TabInicio({ running, elapsed, distance, coords, gpsError, onStart, onSt
   if (running) {
     return (
       <div style={{ textAlign: "center", paddingTop: 20 }}>
-        {/* GPS indicator */}
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(0,230,118,0.1)", borderRadius: 20, padding: "6px 14px", marginBottom: 20, position: "relative" }}>
-          <div style={{ position: "relative", width: 12, height: 12 }}>
-            <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#00e676", position: "absolute", top: 2, left: 2 }} />
-            <div style={{ width: 12, height: 12, borderRadius: "50%", background: "rgba(0,230,118,0.4)", position: "absolute", animation: "gps-ping 1.5s ease-out infinite" }} />
+        {/* GPS indicator + weather */}
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 6, marginBottom: 20 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(0,230,118,0.1)", borderRadius: 20, padding: "6px 14px" }}>
+            <div style={{ position: "relative", width: 12, height: 12 }}>
+              <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#00e676", position: "absolute", top: 2, left: 2 }} />
+              <div style={{ width: 12, height: 12, borderRadius: "50%", background: "rgba(0,230,118,0.4)", position: "absolute", animation: "gps-ping 1.5s ease-out infinite" }} />
+            </div>
+            <span style={{ color: "#00e676", fontSize: 12, fontWeight: 700 }}>GPS ACTIVO</span>
           </div>
-          <span style={{ color: "#00e676", fontSize: 12, fontWeight: 700 }}>GPS ACTIVO</span>
+          {weather ? (
+            <div style={{ fontSize: 12, color: "#aaa", background: "rgba(255,255,255,0.05)", borderRadius: 20, padding: "3px 12px" }}>{weather}</div>
+          ) : (
+            <div style={{ fontSize: 11, color: "#444" }}>Detectando clima...</div>
+          )}
         </div>
 
         {/* Timer */}
